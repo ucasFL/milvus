@@ -12,13 +12,20 @@
 #include "unittest/utils.h"
 #include "knowhere/index/vector_index/adapter/VectorAdapter.h"
 
+#include <bits/stdint-intn.h>
 #include <gtest/gtest.h>
 #include <math.h>
+#include <cmath>
+#include <cstddef>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <utility>
 
 INITIALIZE_EASYLOGGINGPP
+
+const char* base_file = "/root/sift/sift_base.tsv";
+const char* query_file = "/root/sift/sift_query.tsv";
 
 void
 InitLog() {
@@ -61,6 +68,23 @@ DataGen::Generate(const int dim, const int nb, const int nq, const bool is_binar
 }
 
 void
+DataGen::GenerateSift1M(const int dim, const int nb, const int nq) {
+    this->dim = dim;
+    this->nb = nb;
+    this->nq = nq;
+
+    GenAllSift1M(dim, nb, xb, ids, xids, nq, xq);
+    assert(xb.size() == (size_t)dim * nb);
+    assert(xq.size() == (size_t)dim * nq);
+
+    base_dataset = milvus::knowhere::GenDatasetWithIds(nb, dim, xb.data(), ids.data());
+    query_dataset = milvus::knowhere::GenDataset(nq, dim, xq.data());
+
+    id_dataset = milvus::knowhere::GenDatasetWithIds(nq, dim, nullptr, ids.data());
+    xid_dataset = milvus::knowhere::GenDatasetWithIds(nq, dim, nullptr, xids.data());
+}
+
+void
 GenAll(const int64_t dim, const int64_t nb, std::vector<float>& xb, std::vector<int64_t>& ids,
        std::vector<int64_t>& xids, const int64_t nq, std::vector<float>& xq) {
     xb.resize(nb * dim);
@@ -68,6 +92,54 @@ GenAll(const int64_t dim, const int64_t nb, std::vector<float>& xb, std::vector<
     ids.resize(nb);
     xids.resize(1);
     GenBase(dim, nb, xb.data(), ids.data(), nq, xq.data(), xids.data(), false);
+}
+
+void
+GenAllSift1M(const int64_t dim, const int64_t nb, std::vector<float>& xb, std::vector<int64_t>& ids,
+             std::vector<int64_t>& xids, const int64_t nq, std::vector<float>& xq) {
+    xb.resize(nb * dim);
+    xq.resize(nq * dim);
+    ids.resize(nb);
+    xids.resize(1);
+    GenData(dim, xb.data(), ids.data(), xq.data(), xids.data());
+}
+
+void
+GenData(const int64_t dim, float* xb, int64_t* ids, float* xq, int64_t* xids) {
+    xids[0] = 3;
+    ReadData(base_file, 128, xb);
+    ReadData(query_file, 128, xq);
+    for (size_t i = 0; i < 1000000; ++i) {
+        ids[i] = i;
+    }
+}
+
+void
+ReadData(const char* file_name, const int64_t dimension, float* data) {
+    std::ifstream file;
+    file.open(file_name);
+    if (!file.is_open())
+    {
+        std::cout << "Open file " << file_name << " failed" << std::endl;
+        exit(-1);
+    }
+    std::string s;
+    int index = 0;
+    const char * start;
+    char * end;
+
+    size_t size;
+    while (std::getline(file, s))
+    {
+        start = s.c_str();
+        size = 0;
+        for (float f = std::strtof(start, &end); start != end && size++ < dimension; f = std::strtof(start, &end))
+        {
+            data[index++] = f;
+            start = end;
+        }
+    }
+    file.close();
 }
 
 void
@@ -161,53 +233,29 @@ AssertAnns(const milvus::knowhere::DatasetPtr& result, const int nq, const int k
     }
 }
 
-#if 0
 void
-AssertVec(const milvus::knowhere::DatasetPtr& result, const milvus::knowhere::DatasetPtr& base_dataset,
-          const milvus::knowhere::DatasetPtr& id_dataset, const int n, const int dim, const CheckMode check_mode) {
-    float* base = (float*)base_dataset->Get<const void*>(milvus::knowhere::meta::TENSOR);
-    auto ids = id_dataset->Get<const int64_t*>(milvus::knowhere::meta::IDS);
-    auto x = result->Get<float*>(milvus::knowhere::meta::TENSOR);
-    for (auto i = 0; i < n; i++) {
-        auto id = ids[i];
-        for (auto j = 0; j < dim; j++) {
-            switch (check_mode) {
-                case CheckMode::CHECK_EQUAL: {
-                    ASSERT_EQ(*(base + id * dim + j), *(x + i * dim + j));
-                    break;
+SaveIdsToFile(const milvus::knowhere::DatasetPtr& result, const int nq, const int k, const char* algo, int edge_size,
+              int arg1, int arg2) {
+    auto ids = result->Get<int64_t*>(milvus::knowhere::meta::IDS);
+    std::string output("/root/output/");
+    output = output + algo + "-" + std::to_string(edge_size) + "-" + std::to_string(arg1) + "-" + std::to_string(arg2);
+    std::ofstream file(output);
+    if (file.is_open()) {
+        for (size_t i = 0; i < nq; ++i) {
+            for (size_t j = 0; j < k; ++j) {
+                file << *((int64_t*)(ids) + i * k + j);
+                if (j < k - 1) {
+                    file << "\t";
+                    continue;
                 }
-                case CheckMode::CHECK_NOT_EQUAL: {
-                    ASSERT_NE(*(base + id * dim + j), *(x + i * dim + j));
-                    break;
-                }
-                case CheckMode::CHECK_APPROXIMATE_EQUAL: {
-                    float a = *(base + id * dim + j);
-                    float b = *(x + i * dim + j);
-                    ASSERT_TRUE((std::fabs(a - b) / std::fabs(a)) < 0.1);
-                    break;
-                }
-                default:
-                    ASSERT_TRUE(false);
-                    break;
+                file << "\n";
             }
         }
+        file.close();
+    } else {
+        std::cout << "Open file failed" << std::endl;
     }
 }
-
-void
-AssertBinVec(const milvus::knowhere::DatasetPtr& result, const milvus::knowhere::DatasetPtr& base_dataset,
-             const milvus::knowhere::DatasetPtr& id_dataset, const int n, const int dim, const CheckMode check_mode) {
-    auto base = (uint8_t*)base_dataset->Get<const void*>(milvus::knowhere::meta::TENSOR);
-    auto ids = id_dataset->Get<const int64_t*>(milvus::knowhere::meta::IDS);
-    auto x = result->Get<float*>(milvus::knowhere::meta::TENSOR);
-    for (auto i = 0; i < 1; i++) {
-        auto id = ids[i];
-        for (auto j = 0; j < dim; j++) {
-            ASSERT_EQ(*(base + id * dim + j), *(x + i * dim + j));
-        }
-    }
-}
-#endif
 
 void
 PrintResult(const milvus::knowhere::DatasetPtr& result, const int& nq, const int& k) {
@@ -229,75 +277,3 @@ PrintResult(const milvus::knowhere::DatasetPtr& result, const int& nq, const int
     std::cout << "id\n" << ss_id.str() << std::endl;
     std::cout << "dist\n" << ss_dist.str() << std::endl;
 }
-
-// not used
-#if 0
-void
-Load_nns_graph(std::vector<std::vector<int64_t>>& final_graph, const char* filename) {
-    std::vector<std::vector<unsigned>> knng;
-
-    std::ifstream in(filename, std::ios::binary);
-    unsigned k;
-    in.read((char*)&k, sizeof(unsigned));
-    in.seekg(0, std::ios::end);
-    std::ios::pos_type ss = in.tellg();
-    size_t fsize = (size_t)ss;
-    size_t num = (size_t)(fsize / (k + 1) / 4);
-    in.seekg(0, std::ios::beg);
-
-    knng.resize(num);
-    knng.reserve(num);
-    int64_t kk = (k + 3) / 4 * 4;
-    for (size_t i = 0; i < num; i++) {
-        in.seekg(4, std::ios::cur);
-        knng[i].resize(k);
-        knng[i].reserve(kk);
-        in.read((char*)knng[i].data(), k * sizeof(unsigned));
-    }
-    in.close();
-
-    final_graph.resize(knng.size());
-    for (int i = 0; i < knng.size(); ++i) {
-        final_graph[i].resize(knng[i].size());
-        for (int j = 0; j < knng[i].size(); ++j) {
-            final_graph[i][j] = knng[i][j];
-        }
-    }
-}
-
-float*
-fvecs_read(const char* fname, size_t* d_out, size_t* n_out) {
-    FILE* f = fopen(fname, "r");
-    if (!f) {
-        fprintf(stderr, "could not open %s\n", fname);
-        perror("");
-        abort();
-    }
-    int d;
-    fread(&d, 1, sizeof(int), f);
-    assert((d > 0 && d < 1000000) || !"unreasonable dimension");
-    fseek(f, 0, SEEK_SET);
-    struct stat st;
-    fstat(fileno(f), &st);
-    size_t sz = st.st_size;
-    assert(sz % ((d + 1) * 4) == 0 || !"weird file size");
-    size_t n = sz / ((d + 1) * 4);
-
-    *d_out = d;
-    *n_out = n;
-    float* x = new float[n * (d + 1)];
-    size_t nr = fread(x, sizeof(float), n * (d + 1), f);
-    assert(nr == n * (d + 1) || !"could not read whole file");
-
-    // shift array to remove row headers
-    for (size_t i = 0; i < n; i++) memmove(x + i * d, x + 1 + i * (d + 1), d * sizeof(*x));
-
-    fclose(f);
-    return x;
-}
-
-int*  // not very clean, but works as long as sizeof(int) == sizeof(float)
-ivecs_read(const char* fname, size_t* d_out, size_t* n_out) {
-    return (int*)fvecs_read(fname, d_out, n_out);
-}
-#endif

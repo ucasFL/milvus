@@ -28,11 +28,14 @@ class DataGen {
     void
     Generate(const int dim, const int nb, const int nq, const bool is_binary = false);
 
+    void
+    GenerateSift1M(const int dim, const int nb, const int nq);
+
  protected:
     int nb = 10000;
     int nq = 10;
     int dim = 64;
-    int k = 10;
+    int k = 100;
     std::vector<float> xb;
     std::vector<float> xq;
     std::vector<uint8_t> xb_bin;
@@ -59,6 +62,20 @@ GenBase(const int64_t dim, const int64_t nb, const void* xb, int64_t* ids, const
 
 extern void
 InitLog();
+
+void
+GenAllSift1M(const int64_t dim, const int64_t nb, std::vector<float>& xb, std::vector<int64_t>& ids,
+             std::vector<int64_t>& xids, const int64_t nq, std::vector<float>& xq);
+
+void
+GenData(const int64_t dim, float* xb, int64_t* ids, float* xq, int64_t* xids);
+
+void
+ReadData(const char* file_name, const int64_t dimension, float* data);
+
+void
+SaveIdsToFile(const milvus::knowhere::DatasetPtr& result, const int nq, const int k, const char* algo, int edge_sizeo,
+              int arg1, int arg2);
 
 enum class CheckMode {
     CHECK_EQUAL = 0,

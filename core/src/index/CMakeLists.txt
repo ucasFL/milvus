@@ -96,5 +96,6 @@ if (KNOWHERE_BUILD_TESTS)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DELPP_DISABLE_LOGS")
     add_subdirectory(unittest)
 endif ()
+add_subdirectory(unittest)
 
 config_summary()

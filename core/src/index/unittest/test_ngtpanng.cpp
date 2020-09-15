@@ -14,6 +14,7 @@
 #include <iostream>
 #include <sstream>
 
+#include <NGT/Common.h>
 #include "knowhere/common/Exception.h"
 #include "knowhere/index/vector_index/IndexNGTPANNG.h"
 
@@ -28,11 +29,12 @@ class NGTPANNGTest : public DataGen, public TestWithParam<std::string> {
     void
     SetUp() override {
         IndexType = GetParam();
-        Generate(128, 10000, 10);
+        // Generate(128, 10000, 10);
+        GenerateSift1M(128, 1000000, 10000);
         index_ = std::make_shared<milvus::knowhere::IndexNGTPANNG>();
         conf = milvus::knowhere::Config{
             {milvus::knowhere::meta::DIM, dim},
-            {milvus::knowhere::meta::TOPK, 10},
+            {milvus::knowhere::meta::TOPK, 100},
             {milvus::knowhere::Metric::TYPE, milvus::knowhere::Metric::L2},
             {milvus::knowhere::IndexParams::edge_size, 10},
             {milvus::knowhere::IndexParams::forcedly_pruned_edge_size, 60},
@@ -52,6 +54,7 @@ TEST_P(NGTPANNGTest, ngtpanng_basic) {
     assert(!xb.empty());
 
     // null index
+#if 0
     {
         ASSERT_ANY_THROW(index_->Train(base_dataset, conf));
         ASSERT_ANY_THROW(index_->Query(query_dataset, conf));
@@ -62,14 +65,21 @@ TEST_P(NGTPANNGTest, ngtpanng_basic) {
         ASSERT_ANY_THROW(index_->Dim());
     }
 
+#endif
     index_->BuildAll(base_dataset, conf);
-    ASSERT_EQ(index_->Count(), nb);
-    ASSERT_EQ(index_->Dim(), dim);
+    // ASSERT_EQ(index_->Count(), nb);
+    // ASSERT_EQ(index_->Dim(), dim);
 
-	auto result = index_->Query(query_dataset, conf);
-	AssertAnns(result, nq, k);
+    NGT::Timer timer;
+    timer.start();
+    auto result = index_->Query(query_dataset, conf);
+    timer.stop();
+    std::cout << std::endl << "Query time: " << timer.time << std::endl;
+    SaveIdsToFile(result, nq, k, "panng", 10, 60, 30);
+    // AssertAnns(result, nq, k);
 }
 
+#if 0
 TEST_P(NGTPANNGTest, ngtpanng_delete) {
     assert(!xb.empty());
 
@@ -147,3 +157,4 @@ TEST_P(NGTPANNGTest, ngtpanng_serialize) {
         AssertAnns(result, nq, conf[milvus::knowhere::meta::TOPK]);
     }
 }
+#endif
